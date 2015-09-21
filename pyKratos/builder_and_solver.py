@@ -201,15 +201,8 @@ class BuilderAndSolver:
             DK_G = DK.dot(G)
             Ap = (S - D_DK.dot(G)).tocsr()
 
-            Pp = amg.pyamgcl_ext.make_preconditioner(
-                    amg.pyamgcl_ext.coarsening.smoothed_aggregation,
-                    amg.pyamgcl_ext.relaxation.ilu0,
-                    {},
-                    Ap.indptr.astype(int32),
-                    Ap.indices.astype(int32),
-                    Ap.data.astype(float64)
-                    )
-            Pv = sparse.linalg.spilu(K, fill_factor=1)
+            Pp = amg.make_preconditioner(Ap, prm={"coarse_enough" : 100})
+            Pv = sparse.linalg.spilu(K, fill_factor=10)
 
             def applyM(b):
                 rv = zeros(nv)
@@ -226,7 +219,7 @@ class BuilderAndSolver:
                 rp -= D * xv
 
                 xp = Pp(rp)
-            
+
                 xv -= DK_G * xp
 
                 x = zeros(n)
@@ -245,7 +238,7 @@ class BuilderAndSolver:
 
             def callback(x):
                 numiter[0] += 1
-                res = linalg.norm(b - A * x)
+                res = linalg.norm(b - A * x) / linalg.norm(b)
                 print("iter: %s, res: %s" % (numiter[0], res))
 
             dx,info = bicgstab(A, b, M=M, callback=callback)

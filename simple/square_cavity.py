@@ -39,9 +39,9 @@ else:
         }
         
 #defining a 1 by 1 square
-nx = 11
+nx = 31
 dx = 1.0/(nx-1)
-ny = 11
+ny = 31
 dy = 1.0/(ny-1)
 import generate_square
 node_list, element_connectivities,face_connectivities = generate_square.GenerateSquare(nx, dx, ny, dy)
