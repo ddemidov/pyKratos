@@ -2,7 +2,9 @@ from __future__ import print_function, absolute_import, division
 from numpy import *
 from scipy import linalg
 from scipy import sparse
-
+from scipy.sparse.linalg import LinearOperator
+from scipy.sparse.linalg import bicgstab
+from pyKratos.variables import PRESSURE
 
 class BuilderAndSolver:
     use_sparse_matrices = True
@@ -161,8 +163,80 @@ class BuilderAndSolver:
         if(self.use_sparse_matrices == False):
             dx = linalg.solve(A, b)
         else:
+            n = A.shape[0]
 
-            from scipy.sparse.linalg import spsolve
-            dx = sparse.linalg.spsolve(A, b)
+            mv = -1 * ones(n)
+            mp = -1 * ones(n)
+
+            np = 0
+            nv = 0
+            for i,dof in enumerate(self.dofset):
+                if dof.variable == PRESSURE:
+                    mp[i] = np
+                    np += 1
+                else:
+                    mv[i] = nv
+                    nv += 1
+
+            S = sparse.lil_matrix((np,np), dtype=float64)
+            K = sparse.lil_matrix((nv,nv), dtype=float64)
+            D = sparse.lil_matrix((np,nv), dtype=float64)
+            G = sparse.lil_matrix((nv,np), dtype=float64)
+
+            ij = A.nonzero()
+            for i, j in zip(ij[0], ij[1]):
+                if mv[i] >= 0 and mv[j] >= 0:
+                    K[mv[i],mv[j]] = A[i,j]
+                elif mv[i] >= 0 and mp[j] >= 0:
+                    G[mv[i],mp[j]] = A[i,j]
+                elif mp[i] >= 0 and mv[j] >= 0:
+                    D[mp[i],mv[j]] = A[i,j]
+                elif mp[i] >= 0 and mp[j] >= 0:
+                    S[mp[i],mp[j]] = A[i,j]
+
+            DK = sparse.spdiags((K.diagonal()**-1).reshape((nv)), [0], nv, nv)
+            D_DK = D.dot(DK)
+
+            DK_G = DK.dot(G)
+            Ap = S - D_DK.dot(G)
+
+            def applyM(b):
+                rv = zeros(nv)
+                rp = zeros(np)
+
+                for i in range(n):
+                    if mv[i] >= 0:
+                        rv[mv[i]] = b[i]
+                    else:
+                        rp[mp[i]] = b[i]
+
+                xv = sparse.linalg.spsolve(K, rv)
+
+                rp -= D * xv
+
+                xp = sparse.linalg.spsolve(Ap, rp)
+            
+                xv -= DK_G * xp
+
+                x = zeros(n)
+
+                for i in range(len(b)):
+                    if mv[i] >= 0:
+                        x[i] = xv[mv[i]]
+                    else:
+                        x[i] = xp[mp[i]]
+
+                return x
+
+            M = LinearOperator((n,n), matvec=applyM)
+
+            numiter = [0]
+
+            def callback(x):
+                numiter[0] += 1
+                res = linalg.norm(b - A * x)
+                print("iter: %s, res: %s" % (numiter[0], res))
+
+            dx,info = bicgstab(A, b, M=M, callback=callback)
 
         return [A, dx, b]
