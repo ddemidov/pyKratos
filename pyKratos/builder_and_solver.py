@@ -5,6 +5,7 @@ from scipy import sparse
 from scipy.sparse.linalg import LinearOperator
 from scipy.sparse.linalg import bicgstab
 from pyKratos.variables import PRESSURE
+import pyamgcl as amg
 
 class BuilderAndSolver:
     use_sparse_matrices = True
@@ -198,7 +199,17 @@ class BuilderAndSolver:
             D_DK = D.dot(DK)
 
             DK_G = DK.dot(G)
-            Ap = S - D_DK.dot(G)
+            Ap = (S - D_DK.dot(G)).tocsr()
+
+            Pp = amg.pyamgcl_ext.make_preconditioner(
+                    amg.pyamgcl_ext.coarsening.smoothed_aggregation,
+                    amg.pyamgcl_ext.relaxation.ilu0,
+                    {},
+                    Ap.indptr.astype(int32),
+                    Ap.indices.astype(int32),
+                    Ap.data.astype(float64)
+                    )
+            Pv = sparse.linalg.spilu(K, fill_factor=1)
 
             def applyM(b):
                 rv = zeros(nv)
@@ -210,11 +221,11 @@ class BuilderAndSolver:
                     else:
                         rp[mp[i]] = b[i]
 
-                xv = sparse.linalg.spsolve(K, rv)
+                xv = Pv.solve(rv)
 
                 rp -= D * xv
 
-                xp = sparse.linalg.spsolve(Ap, rp)
+                xp = Pp(rp)
             
                 xv -= DK_G * xp
 
