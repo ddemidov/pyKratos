@@ -166,71 +166,69 @@ class BuilderAndSolver:
         else:
             n = A.shape[0]
 
-            mv = -1 * ones(n)
             mp = -1 * ones(n)
+            ms = -1 * ones(n)
 
             np = 0
-            nv = 0
+            ns = 0
+
             for i,dof in enumerate(self.dofset):
                 if dof.variable == PRESSURE:
                     mp[i] = np
                     np += 1
                 else:
-                    mv[i] = nv
-                    nv += 1
+                    ms[i] = ns
+                    ns += 1
 
-            S = sparse.lil_matrix((np,np), dtype=float64)
-            K = sparse.lil_matrix((nv,nv), dtype=float64)
-            D = sparse.lil_matrix((np,nv), dtype=float64)
-            G = sparse.lil_matrix((nv,np), dtype=float64)
+            App = sparse.lil_matrix((np,np), dtype=float64)
+            Ass = sparse.lil_matrix((ns,ns), dtype=float64)
+            Aps = sparse.lil_matrix((np,ns), dtype=float64)
+            Asp = sparse.lil_matrix((ns,np), dtype=float64)
 
             ij = A.nonzero()
             for i, j in zip(ij[0], ij[1]):
-                if mv[i] >= 0 and mv[j] >= 0:
-                    K[mv[i],mv[j]] = A[i,j]
-                elif mv[i] >= 0 and mp[j] >= 0:
-                    G[mv[i],mp[j]] = A[i,j]
-                elif mp[i] >= 0 and mv[j] >= 0:
-                    D[mp[i],mv[j]] = A[i,j]
+                if ms[i] >= 0 and ms[j] >= 0:
+                    Ass[ms[i],ms[j]] = A[i,j]
+                elif ms[i] >= 0 and mp[j] >= 0:
+                    Asp[ms[i],mp[j]] = A[i,j]
+                elif mp[i] >= 0 and ms[j] >= 0:
+                    Aps[mp[i],ms[j]] = A[i,j]
                 elif mp[i] >= 0 and mp[j] >= 0:
-                    S[mp[i],mp[j]] = A[i,j]
+                    App[mp[i],mp[j]] = A[i,j]
 
-            DK = sparse.spdiags((K.diagonal()**-1).reshape((nv)), [0], nv, nv)
-            D_DK = D.dot(DK)
+            Dss = sparse.spdiags((Ass.diagonal()**-1), [0], ns, ns)
+            Aps_Dss = Aps.dot(Dss)
+            Ap = App - Aps_Dss.dot(Asp)
 
-            DK_G = DK.dot(G)
-            Ap = (S - D_DK.dot(G)).tocsr()
-
-            Pp = amg.make_preconditioner(Ap, prm={"coarse_enough" : 100})
-            Pv = sparse.linalg.spilu(K, fill_factor=10)
+            Pp  = amg.make_preconditioner(Ap, prm={"coarse_enough" : 100})
+            ILU = sparse.linalg.spilu(A, fill_factor=2)
 
             def applyM(b):
-                rv = zeros(nv)
-                rp = zeros(np)
+                if True:
+                    bp = zeros(np)
+                    bs = zeros(ns)
 
-                for i in range(n):
-                    if mv[i] >= 0:
-                        rv[mv[i]] = b[i]
-                    else:
-                        rp[mp[i]] = b[i]
+                    for i in range(n):
+                        if ms[i] >= 0:
+                            bs[ms[i]] = b[i]
+                        else:
+                            bp[mp[i]] = b[i]
 
-                xv = Pv.solve(rv)
+                    rp = bp - Aps_Dss * bs
+                    xp = Pp(rp)
 
-                rp -= D * xv
+                    dx = zeros(n)
+                    for i in range(n):
+                        if mp[i] >= 0:
+                            dx[i] = xp[mp[i]]
 
-                xp = Pp(rp)
+                    newb = b - A * dx
 
-                xv -= DK_G * xp
+                    x = ILU.solve(newb)
 
-                x = zeros(n)
-
-                for i in range(len(b)):
-                    if mv[i] >= 0:
-                        x[i] = xv[mv[i]]
-                    else:
-                        x[i] = xp[mp[i]]
-
-                return x
+                    return x + dx
+                else:
+                    return ILU.solve(b)
 
             M = LinearOperator((n,n), matvec=applyM)
 
