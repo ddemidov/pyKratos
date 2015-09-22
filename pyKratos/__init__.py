@@ -10,4 +10,5 @@ from . import triangle
 from . import solving_strategy
 from . import static_scheme
 from . import builder_and_solver
+from . import builder_and_solver_cpr
 from . import line2d

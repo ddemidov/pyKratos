@@ -135,7 +135,7 @@ elif example == "inlet":
 import gear_scheme
 time_scheme = gear_scheme.GearScheme(model_part)
 
-builder_and_solver = builder_and_solver.BuilderAndSolver(
+builder_and_solver = builder_and_solver_cpr.BuilderAndSolver(
     model_part, time_scheme)
 
 strategy = solving_strategy.SolvingStrategy(
