@@ -6,10 +6,10 @@ print(sys.path)
 from numpy import *
 from pyKratos import *
 
-#example = "cavity" 
+example = "cavity"
 #example = "gravity"
 #example = "shear_x"
-example = "inlet"
+#example = "inlet"
 
 # add variables to be allocated from the list in variables.py
 solution_step_variables = [

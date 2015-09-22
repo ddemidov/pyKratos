@@ -3,7 +3,7 @@ from numpy import *
 from scipy import linalg
 from scipy import sparse
 from scipy.sparse.linalg import LinearOperator
-from scipy.sparse.linalg import bicgstab
+from scipy.sparse.linalg import bicgstab, gmres
 from pyKratos.variables import PRESSURE
 import pyamgcl as amg
 
@@ -199,10 +199,20 @@ class BuilderAndSolver:
             D_DK = D.dot(DK)
 
             DK_G = DK.dot(G)
-            Ap = (S - D_DK.dot(G)).tocsr()
+            Ap = (S - sparse.spdiags((D_DK.dot(G)).diagonal(), [0], np, np)).tocsr()
 
             Pp = amg.make_preconditioner(Ap, prm={"coarse_enough" : 100})
-            Pv = sparse.linalg.spilu(K, fill_factor=10)
+            """
+            Pv = amg.make_solver(K,
+                    relaxation=amg.relaxation.damped_jacobi,
+                    solver=amg.solver_type.gmres,
+                    prm={
+                        "amg.coarse_enough" : 100,
+                        "solver.tol" : 1e-3,
+                        }
+                    )
+            """
+            Pv = sparse.linalg.spilu(K, fill_factor=2)
 
             def applyM(b):
                 rv = zeros(nv)
@@ -214,7 +224,13 @@ class BuilderAndSolver:
                     else:
                         rp[mp[i]] = b[i]
 
-                xv = Pv.solve(rv)
+                def applyV(b):
+                    return Pv.solve(b)
+
+                Mv = LinearOperator((nv,nv), matvec=applyV)
+
+                #xv = Pv.solve(rv)
+                xv,_ = bicgstab(K, rv, M=Mv, tol=1e-5)
 
                 rp -= D * xv
 
@@ -241,6 +257,6 @@ class BuilderAndSolver:
                 res = linalg.norm(b - A * x) / linalg.norm(b)
                 print("iter: %s, res: %s" % (numiter[0], res))
 
-            dx,info = bicgstab(A, b, M=M, callback=callback)
+            dx,info = gmres(A, b, M=M, callback=callback)
 
         return [A, dx, b]
