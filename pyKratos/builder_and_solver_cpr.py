@@ -6,6 +6,7 @@ from scipy.sparse.linalg import LinearOperator
 from scipy.sparse.linalg import bicgstab
 from pyKratos.variables import PRESSURE
 import pyamgcl as amg
+from scipy.io import mmwrite
 
 class BuilderAndSolver:
     use_sparse_matrices = True
@@ -166,79 +167,92 @@ class BuilderAndSolver:
         else:
             n = A.shape[0]
 
-            mp = -1 * ones(n)
-            ms = -1 * ones(n)
+            if False:
+                mp = -1 * ones(n)
+                ms = -1 * ones(n)
 
-            np = 0
-            ns = 0
+                np = 0
+                ns = 0
 
-            for i,dof in enumerate(self.dofset):
-                if dof.variable == PRESSURE:
-                    mp[i] = np
-                    np += 1
-                else:
-                    ms[i] = ns
-                    ns += 1
+                for i,dof in enumerate(self.dofset):
+                    if dof.variable == PRESSURE:
+                        mp[i] = np
+                        np += 1
+                    else:
+                        ms[i] = ns
+                        ns += 1
 
-            App = sparse.lil_matrix((np,np), dtype=float64)
-            Ass = sparse.lil_matrix((ns,ns), dtype=float64)
-            Aps = sparse.lil_matrix((np,ns), dtype=float64)
-            Asp = sparse.lil_matrix((ns,np), dtype=float64)
+                App = sparse.lil_matrix((np,np), dtype=float64)
+                Ass = sparse.lil_matrix((ns,ns), dtype=float64)
+                Aps = sparse.lil_matrix((np,ns), dtype=float64)
+                Asp = sparse.lil_matrix((ns,np), dtype=float64)
 
-            ij = A.nonzero()
-            for i, j in zip(ij[0], ij[1]):
-                if ms[i] >= 0 and ms[j] >= 0:
-                    Ass[ms[i],ms[j]] = A[i,j]
-                elif ms[i] >= 0 and mp[j] >= 0:
-                    Asp[ms[i],mp[j]] = A[i,j]
-                elif mp[i] >= 0 and ms[j] >= 0:
-                    Aps[mp[i],ms[j]] = A[i,j]
-                elif mp[i] >= 0 and mp[j] >= 0:
-                    App[mp[i],mp[j]] = A[i,j]
+                ij = A.nonzero()
+                for i, j in zip(ij[0], ij[1]):
+                    if ms[i] >= 0 and ms[j] >= 0:
+                        Ass[ms[i],ms[j]] = A[i,j]
+                    elif ms[i] >= 0 and mp[j] >= 0:
+                        Asp[ms[i],mp[j]] = A[i,j]
+                    elif mp[i] >= 0 and ms[j] >= 0:
+                        Aps[mp[i],ms[j]] = A[i,j]
+                    elif mp[i] >= 0 and mp[j] >= 0:
+                        App[mp[i],mp[j]] = A[i,j]
 
-            Dss = sparse.spdiags((Ass.diagonal()**-1), [0], ns, ns)
-            Aps_Dss = Aps.dot(Dss)
-            Ap = App - Aps_Dss.dot(Asp)
+                Dss = sparse.spdiags((Ass.diagonal()**-1), [0], ns, ns)
+                Aps_Dss = Aps.dot(Dss)
+                Ap = App - Aps_Dss.dot(Asp)
 
-            Pp  = amg.make_preconditioner(Ap, prm={"coarse_enough" : 100})
-            ILU = sparse.linalg.spilu(A, fill_factor=2)
+                Pp  = amg.make_preconditioner(Ap, prm={"coarse_enough" : 100})
+                ILU = sparse.linalg.spilu(A, fill_factor=1)
 
-            def applyM(b):
-                if True:
-                    bp = zeros(np)
-                    bs = zeros(ns)
+                def applyM(b):
+                    if True:
+                        bp = zeros(np)
+                        bs = zeros(ns)
 
-                    for i in range(n):
-                        if ms[i] >= 0:
-                            bs[ms[i]] = b[i]
-                        else:
-                            bp[mp[i]] = b[i]
+                        for i in range(n):
+                            if ms[i] >= 0:
+                                bs[ms[i]] = b[i]
+                            else:
+                                bp[mp[i]] = b[i]
 
-                    rp = bp - Aps_Dss * bs
-                    xp = Pp(rp)
+                        rp = bp - Aps_Dss * bs
+                        xp = Pp(rp)
 
-                    dx = zeros(n)
-                    for i in range(n):
-                        if mp[i] >= 0:
-                            dx[i] = xp[mp[i]]
+                        dx = zeros(n)
+                        for i in range(n):
+                            if mp[i] >= 0:
+                                dx[i] = xp[mp[i]]
 
-                    newb = b - A * dx
+                        newb = b - A * dx
 
-                    x = ILU.solve(newb)
+                        x = ILU.solve(newb)
 
-                    return x + dx
-                else:
-                    return ILU.solve(b)
+                        return x + dx
+                    else:
+                        return ILU.solve(b)
 
-            M = LinearOperator((n,n), matvec=applyM)
+                M = LinearOperator((n,n), matvec=applyM)
+            else:
+                pmask = zeros(n)
+                for i,dof in enumerate(self.dofset):
+                    if dof.variable == PRESSURE:
+                        pmask[i] = 1
+
+                """
+                mmwrite("A_square.mtx", A)
+                mmwrite("b_square.mtx", b.reshape((n,1)))
+                mmwrite("p_square.mtx", pmask.reshape((n,1)))
+                raise "done"
+                """
+                M = amg.make_cpr(A, pmask)
 
             numiter = [0]
-
             def callback(x):
                 numiter[0] += 1
                 res = linalg.norm(b - A * x) / linalg.norm(b)
                 print("iter: %s, res: %s" % (numiter[0], res))
 
-            dx,info = bicgstab(A, b, M=M, callback=callback)
+            dx,info = bicgstab(A, b, M=M, tol=1e-8, callback=callback)
 
         return [A, dx, b]
